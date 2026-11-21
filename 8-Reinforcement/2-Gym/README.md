@@ -20,21 +20,21 @@ We will use a simplified version of balancing known as a **CartPole** problem. I
 
 ## Prerequisites
 
-In this lesson, we will be using a library called **OpenAI Gym** to simulate different **environments**. You can run this lesson's code locally (eg. from Visual Studio Code), in which case the simulation will open in a new window. When running the code online, you may need to make some tweaks to the code, as described [here](https://towardsdatascience.com/rendering-openai-gym-envs-on-binder-and-google-colab-536f99391cc7).
+In this lesson, we will use **Gymnasium** (the maintained successor to legacy OpenAI Gym) to simulate different **environments**. You can run this lesson's code locally (e.g., from Visual Studio Code or Jupyter Notebook), in which case creating an environment with `render_mode="human"` opens the simulation in a new window. When running in a headless or cloud environment without a display, omit `render_mode` during training or use `render_mode="rgb_array"` to capture frames as images.
 
-## OpenAI Gym
+## Gymnasium
 
-In the previous lesson, the rules of the game and the state were given by the `Board` class which we defined ourselves. Here we will use a special **simulation environment**, which will simulate the physics behind the balancing pole. One of the most popular simulation environments for training reinforcement learning algorithms is called a [Gym](https://gym.openai.com/), which is maintained by [OpenAI](https://openai.com/). By using this gym we can create difference **environments** from a cartpole simulation to Atari games.
+In the previous lesson, the rules of the game and the state were given by the `Board` class which we defined ourselves. Here we will use a special **simulation environment**, which will simulate the physics behind the balancing pole. One of the most popular simulation libraries for training reinforcement learning algorithms is [Gymnasium](https://gymnasium.farama.org/), which is maintained by the [Farama Foundation](https://farama.org/). Using Gymnasium, we can create different **environments**, from classic control problems like CartPole to Atari games.
 
-> **Note**: You can see other environments available from OpenAI Gym [here](https://gym.openai.com/envs/#classic_control). 
+> **Note**: You can explore other classic control environments in the [Gymnasium documentation](https://gymnasium.farama.org/environments/classic_control/).
 
-First, let's install the gym and import required libraries (code block 1):
+First, let's install Gymnasium (including the `classic-control` extra for CartPole rendering) and import the required libraries (code block 1):
 
 ```python
 import sys
-!{sys.executable} -m pip install gym 
+!{sys.executable} -m pip install -q "gymnasium[classic-control]"
 
-import gym
+import gymnasium as gym
 import matplotlib.pyplot as plt
 import numpy as np
 import random
@@ -48,10 +48,10 @@ To work with a cartpole balancing problem, we need to initialize corresponding e
 
 - **Action space** that defines possible actions. In our case the action space is discrete, and consists of two actions - **left** and **right**. (code block 2)
 
-1. To initialize, type the following code:
+1. To initialize the environment with a local display window, pass `render_mode="human"` to `gym.make`:
 
     ```python
-    env = gym.make("CartPole-v1")
+    env = gym.make("CartPole-v1", render_mode="human")
     print(env.action_space)
     print(env.observation_space)
     print(env.action_space.sample())
@@ -59,16 +59,19 @@ To work with a cartpole balancing problem, we need to initialize corresponding e
 
 To see how the environment works, let's run a short simulation for 100 steps. At each step, we provide one of the actions to be taken - in this simulation we just randomly select an action from `action_space`. 
 
-1. Run the code below and see what it leads to.
+1. Run the code below and see what it leads to. Because the environment was created with `render_mode="human"`, Gymnasium renders each step automatically—there is no need to call `env.render()` manually. Reset the environment whenever an episode ends (`terminated or truncated`).
 
     ✅ Remember that it is preferred to run this code on local Python installation! (code block 3)
 
     ```python
-    env.reset()
-    
-    for i in range(100):
-       env.render()
-       env.step(env.action_space.sample())
+    obs, info = env.reset()
+
+    for _ in range(100):
+        action = env.action_space.sample()
+        obs, rew, terminated, truncated, info = env.step(action)
+        if terminated or truncated:
+            obs, info = env.reset()
+
     env.close()
     ```
 
@@ -76,16 +79,18 @@ To see how the environment works, let's run a short simulation for 100 steps. At
 
     ![non-balancing cartpole](images/cartpole-nobalance.gif)
 
-1. During simulation, we need to get observations in order to decide how to act. In fact, the step function returns current observations, a reward function, and the done flag that indicates whether it makes sense to continue the simulation or not: (code block 4)
+1. During simulation, we need to get observations in order to decide how to act. In Gymnasium, `reset()` returns `(observation, info)`, and `step()` returns five values: current observations, a reward, a `terminated` flag (the pole fell or the cart left bounds), a `truncated` flag (the episode reached the maximum step limit), and an `info` dictionary. An episode ends when either `terminated` or `truncated` is `True`: (code block 4)
 
     ```python
-    env.reset()
-    
-    done = False
-    while not done:
-       env.render()
-       obs, rew, done, info = env.step(env.action_space.sample())
-       print(f"{obs} -> {rew}")
+    env = gym.make("CartPole-v1", render_mode="human")
+    obs, info = env.reset()
+
+    terminated = False
+    truncated = False
+    while not (terminated or truncated):
+        obs, rew, terminated, truncated, info = env.step(env.action_space.sample())
+        print(f"{obs} -> {rew}")
+
     env.close()
     ```
 
@@ -117,7 +122,7 @@ To see how the environment works, let's run a short simulation for 100 steps. At
 
     You may also notice that reward value on each simulation step is always 1. This is because our goal is to survive as long as possible, i.e. keep the pole to a reasonably vertical position for the longest period of time.
 
-    ✅ In fact, the CartPole simulation is considered solved if we manage to get the average reward of 195 over 100 consecutive trials.
+    ✅ In Gymnasium's `CartPole-v1`, episodes run up to 500 steps (`truncated=True` at step 500), and the registered reward threshold is **475** (`gym.spec("CartPole-v1").reward_threshold`), typically evaluated as the average reward over 100 consecutive episodes.
 
 ## State discretization
 
@@ -135,23 +140,23 @@ In our example, we will go with the second approach. As you may notice later, de
 
     ```python
     def discretize(x):
-        return tuple((x/np.array([0.25, 0.25, 0.01, 0.1])).astype(np.int))
+        return tuple((x / np.array([0.25, 0.25, 0.01, 0.1])).astype(int).tolist())
     ```
 
 1. Let's also explore another discretization method using bins: (code block 7)
 
     ```python
-    def create_bins(i,num):
-        return np.arange(num+1)*(i[1]-i[0])/num+i[0]
-    
-    print("Sample bins for interval (-5,5) with 10 bins\n",create_bins((-5,5),10))
-    
-    ints = [(-5,5),(-2,2),(-0.5,0.5),(-2,2)] # intervals of values for each parameter
-    nbins = [20,20,10,10] # number of bins for each parameter
-    bins = [create_bins(ints[i],nbins[i]) for i in range(4)]
-    
+    def create_bins(i, num):
+        return np.arange(num + 1) * (i[1] - i[0]) / num + i[0]
+
+    print("Sample bins for interval (-5,5) with 10 bins\n", create_bins((-5, 5), 10))
+
+    ints = [(-5, 5), (-2, 2), (-0.5, 0.5), (-2, 2)]  # intervals of values for each parameter
+    nbins = [20, 20, 10, 10]  # number of bins for each parameter
+    bins = [create_bins(ints[i], nbins[i]) for i in range(4)]
+
     def discretize_bins(x):
-        return tuple(np.digitize(x[i],bins[i]) for i in range(4))
+        return tuple(int(np.digitize(x[i], bins[i])) for i in range(4))
     ```
 
 1. Let's now run a short simulation and observe those discrete environment values. Feel free to try both `discretize` and `discretize_bins` and see if there is a difference.
@@ -159,18 +164,20 @@ In our example, we will go with the second approach. As you may notice later, de
     ✅ discretize_bins returns the bin number, which is 0-based. Thus for values of input variable around 0 it returns the number from the middle of the interval (10). In discretize, we did not care about the range of output values, allowing them to be negative, thus the state values are not shifted, and 0 corresponds to 0. (code block 8)
 
     ```python
-    env.reset()
-    
-    done = False
-    while not done:
-       #env.render()
-       obs, rew, done, info = env.step(env.action_space.sample())
-       #print(discretize_bins(obs))
-       print(discretize(obs))
+    env = gym.make("CartPole-v1")
+    obs, info = env.reset()
+
+    terminated = False
+    truncated = False
+    while not (terminated or truncated):
+        obs, rew, terminated, truncated, info = env.step(env.action_space.sample())
+        # print(discretize_bins(obs))
+        print(discretize(obs))
+
     env.close()
     ```
 
-    ✅ Uncomment the line starting with env.render if you want to see how the environment executes. Otherwise you can execute it in the background, which is faster. We will use this "invisible" execution during our Q-Learning process.
+    ✅ Because we omit `render_mode`, this simulation runs headlessly in the background without opening a window, which is much faster. Pass `render_mode="human"` to `gym.make` if you want to watch it execute. We will use this headless mode during our Q-Learning training loop.
 
 ## The Q-Table structure
 
@@ -182,10 +189,10 @@ However, sometimes precise dimensions of the observation space are not known. In
 
     ```python
     Q = {}
-    actions = (0,1)
-    
+    actions = (0, 1)
+
     def qvalues(state):
-        return [Q.get((state,a),0) for a in actions]
+        return [Q.get((state, a), 0) for a in actions]
     ```
 
     Here we also define a function `qvalues()`, which returns a list of Q-Table values for a given state that corresponds to all possible actions. If the entry is not present in the Q-Table, we will return 0 as the default.
@@ -215,54 +222,65 @@ Now we are ready to teach Peter to balance!
 
 We can also make two improvements to our algorithm from the previous lesson:
 
-- **Calculate average cumulative reward**, over a number of simulations. We will print the progress each 5000 iterations, and we will average out our cumulative reward over that period of time. It means that if we get more than 195 point - we can consider the problem solved, with even higher quality than required.
+- **Calculate average cumulative reward**, over a number of simulations. We will print the progress every 5000 episodes and average the cumulative reward over each 5000-episode window. On Gymnasium's `CartPole-v1`, episodes can reach up to 500 steps, and the registered reward threshold is **475**.
   
-- **Calculate maximum average cumulative result**, `Qmax`, and we will store the Q-Table corresponding to that result. When you run the training you will notice that sometimes the average cumulative result starts to drop, and we want to keep the values of Q-Table that correspond to the best model observed during training.
+- **Calculate maximum average cumulative result**, `Qmax`, and we will store a copy of the Q-Table corresponding to that result (`Qbest`). When you run the training you will notice that sometimes the average cumulative result starts to drop, and we want to keep the values of Q-Table that correspond to the best model observed during training.
 
-1. Collect all cumulative rewards at each simulation at `rewards` vector for further plotting. (code block  11)
+1. Collect all cumulative rewards at each simulation at `rewards` vector for further plotting. (code block 11)
 
     ```python
-    def probs(v,eps=1e-4):
-        v = v-v.min()+eps
-        v = v/v.sum()
+    def probs(v, eps=1e-4):
+        v = v - v.min() + eps
+        v = v / v.sum()
         return v
-    
+
+    env = gym.make("CartPole-v1")
     Qmax = 0
+    Qbest = {}
     cum_rewards = []
     rewards = []
+
     for epoch in range(100000):
-        obs = env.reset()
-        done = False
-        cum_reward=0
+        obs, info = env.reset()
+        terminated = False
+        truncated = False
+        cum_reward = 0
+
         # == do the simulation ==
-        while not done:
+        while not (terminated or truncated):
             s = discretize(obs)
-            if random.random()<epsilon:
-                # exploitation - chose the action according to Q-Table probabilities
+            if random.random() < epsilon:
+                # exploitation - choose an action according to Q-Table probabilities
                 v = probs(np.array(qvalues(s)))
-                a = random.choices(actions,weights=v)[0]
+                a = random.choices(actions, weights=v)[0]
             else:
-                # exploration - randomly chose the action
-                a = np.random.randint(env.action_space.n)
-    
-            obs, rew, done, info = env.step(a)
-            cum_reward+=rew
+                # exploration - choose a random action
+                a = random.choice(actions)
+
+            obs, rew, terminated, truncated, info = env.step(a)
+            cum_reward += rew
             ns = discretize(obs)
-            Q[(s,a)] = (1 - alpha) * Q.get((s,a),0) + alpha * (rew + gamma * max(qvalues(ns)))
+            future_q = 0 if terminated else max(qvalues(ns))
+            Q[(s, a)] = (1 - alpha) * Q.get((s, a), 0) + alpha * (rew + gamma * future_q)
+
         cum_rewards.append(cum_reward)
         rewards.append(cum_reward)
+
         # == Periodically print results and calculate average reward ==
-        if epoch%5000==0:
-            print(f"{epoch}: {np.average(cum_rewards)}, alpha={alpha}, epsilon={epsilon}")
-            if np.average(cum_rewards) > Qmax:
-                Qmax = np.average(cum_rewards)
-                Qbest = Q
-            cum_rewards=[]
+        if (epoch + 1) % 5000 == 0:
+            avg_reward = np.mean(cum_rewards)
+            print(f"{epoch + 1}: {avg_reward:.2f}, alpha={alpha}, epsilon={epsilon}")
+            if avg_reward > Qmax:
+                Qmax = avg_reward
+                Qbest = Q.copy()
+            cum_rewards = []
+
+    env.close()
     ```
 
 What you may notice from those results:
 
-- **Close to our goal**. We are very close to achieving the goal of getting 195 cumulative rewards over 100+ consecutive runs of the simulation, or we may have actually achieved it! Even if we get smaller numbers, we still do not know, because we average over 5000 runs, and only 100 runs is required in the formal criteria.
+- **Comparing training averages to the threshold**. During training we still explore randomly (`1 - epsilon` of the time) and average across 5000 episodes, so training averages can be lower than evaluating the learned policy greedily. To check whether the policy reaches `CartPole-v1`'s reward threshold of **475** (out of 500 max steps), evaluate `Qbest` over 100 independent episodes without exploration.
   
 - **Reward starts to drop**. Sometimes the reward start to drop, which means that we can "destroy" already learnt values in the Q-Table with the ones that make the situation worse.
 
@@ -274,6 +292,10 @@ During training, we have collected the cumulative reward value at each of the it
 
 ```python
 plt.plot(rewards)
+plt.xlabel("Episode")
+plt.ylabel("Cumulative Reward")
+plt.title("Training Progress (Raw)")
+plt.show()
 ```
 
 ![raw  progress](images/train_progress_raw.png)
@@ -281,10 +303,14 @@ plt.plot(rewards)
 From this graph, it is not possible to tell anything, because due to the nature of stochastic training process the length of training sessions varies greatly. To make more sense of this graph, we can calculate the **running average** over a series of experiments, let's say 100. This can be done conveniently using `np.convolve`: (code block 12)
 
 ```python
-def running_average(x,window):
-    return np.convolve(x,np.ones(window)/window,mode='valid')
+def running_average(x, window):
+    return np.convolve(x, np.ones(window) / window, mode="valid")
 
-plt.plot(running_average(rewards,100))
+plt.plot(running_average(rewards, 100))
+plt.xlabel("Episode")
+plt.ylabel("Average Reward (100-episode window)")
+plt.title("Training Progress (Running Average)")
+plt.show()
 ```
 
 ![training progress](images/train_progress_runav.png)
@@ -297,23 +323,26 @@ To make learning more stable, it makes sense to adjust some of our hyperparamete
 
 - **Increase epsilon**. We may want to increase the `epsilon` slowly, in order to explore less and exploit more. It probably makes sense to start with lower value of `epsilon`, and move up to almost 1.
 
-> **Task 1**: Play with hyperparameter values and see if you can achieve higher cumulative reward. Are you getting above 195?
+> **Task 1**: Play with hyperparameter values and see if you can achieve higher cumulative reward. How close can you get to the `CartPole-v1` reward threshold of 475 (max 500)?
 
-> **Task 2**: To formally solve the problem, you need to get 195 average reward across 100 consecutive runs. Measure that during training and make sure that you have formally solved the problem!
+> **Task 2**: Evaluate your trained policy (`Qbest`) over 100 independent episodes (with exploration turned off) and check whether the average reward reaches the `CartPole-v1` threshold of 475!
 
 ## Seeing the result in action
 
 It would be interesting to actually see how the trained model behaves. Let's run the simulation and follow the same action selection strategy as during training, sampling according to the probability distribution in Q-Table: (code block 13)
 
 ```python
-obs = env.reset()
-done = False
-while not done:
-   s = discretize(obs)
-   env.render()
-   v = probs(np.array(qvalues(s)))
-   a = random.choices(actions,weights=v)[0]
-   obs,_,done,_ = env.step(a)
+env = gym.make("CartPole-v1", render_mode="human")
+obs, info = env.reset()
+terminated = False
+truncated = False
+
+while not (terminated or truncated):
+    s = discretize(obs)
+    v = probs(np.array(qvalues(s)))
+    a = random.choices(actions, weights=v)[0]
+    obs, _, terminated, truncated, info = env.step(a)
+
 env.close()
 ```
 

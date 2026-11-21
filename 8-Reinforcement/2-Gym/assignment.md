@@ -1,10 +1,10 @@
 # Train Mountain Car
 
-[OpenAI Gym](http://gym.openai.com) has been designed in such a way that all environments provide the same API - i.e. the same methods `reset`, `step` and `render`, and the same abstractions of **action space** and **observation space**. Thus is should be possible to adapt the same reinforcement learning algorithms to different environments with minimal code changes.
+[Gymnasium](https://gymnasium.farama.org/) has been designed in such a way that all environments provide the same API - i.e. the same methods `reset`, `step` and `render`, and the same abstractions of **action space** and **observation space**. Specifically, `reset()` returns `(observation, info)`, `step(action)` returns `(observation, reward, terminated, truncated, info)`, and rendering is configured via `render_mode` when calling `gym.make(...)`. Thus it should be possible to adapt the same reinforcement learning algorithms to different environments with minimal code changes.
 
 ## A Mountain Car Environment
 
-[Mountain Car environment](https://gym.openai.com/envs/MountainCar-v0/) contains a car stuck in a valley:
+[Mountain Car environment](https://gymnasium.farama.org/environments/classic_control/mountain_car/) (`MountainCar-v0`) contains a car stuck in a valley:
 
 <img src="images/mountaincar.png" width="300"/>
 
@@ -27,10 +27,9 @@ Observation space consists of just two values:
 
 Reward system for the mountain car is rather tricky:
 
- * Reward of 0 is awarded if the agent reached the flag (position = 0.5) on top of the mountain.
- * Reward of -1 is awarded if the position of the agent is less than 0.5.
+ * The agent receives a reward of `-1` at every timestep until the episode ends, encouraging it to reach the flag in as few steps as possible (the registered reward threshold is `-110`).
 
-Episode terminates if the car position is more than 0.5, or episode length is greater than 200.
+The episode ends when the car reaches the flag at position `>= 0.5` (`terminated=True`), or when the 200-step time limit is reached (`truncated=True`).
 ## Instructions
 
 Adapt our reinforcement learning algorithm to solve the mountain car problem. Start with existing [notebook.ipynb](notebook.ipynb) code, substitute new environment, change state discretization functions, and try to make existing algorithm to train with minimal code modifications. Optimize the result by adjusting hyperparameters.
